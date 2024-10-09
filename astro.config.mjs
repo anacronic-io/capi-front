@@ -1,4 +1,5 @@
 import { defineConfig } from 'astro/config';
 
-// https://astro.build/config
-export default defineConfig({});
+export default defineConfig({
+  outDir: '/dist', // Define la carpeta de salida para el build
+});

@@ -1,0 +1,335 @@
+---
+---
+
+<div class="chat-interface">
+  <div class="metrics">
+    <div class="metric-group">
+      <h3>Coste de procesado</h3>
+      <div class="metric">
+        <span>Flops:</span>
+        <span id="processingCost">0</span>
+      </div>
+      <div class="metric">
+        <span>Parámetros activos:</span>
+        <div id="parametersChart" class="parameters-chart">
+          <span id="activeParameters">0%</span>
+        </div>
+      </div>
+      <div class="metric">
+        <span>Uso de memoria:</span>
+        <div class="memory-bar">
+          <div id="memoryBar" class="memory-progress"></div>
+          <span id="memoryUsage">64 MB</span>
+        </div>
+      </div>
+    </div>
+    <div class="metric-group">
+      <h3>Entropía</h3>
+      <div class="metric">
+        <span>Base modelo:</span>
+        <span id="modelEntropyValue">0.000</span>
+      </div>
+      <div class="metric">
+        <span>Output:</span>
+        <span id="responseEntropyValue">0.000</span>
+      </div>
+      <div class="metric">
+        <span>Diferencia:</span>
+        <span id="entropyDifference">0.000</span>
+        <div id="entropyArrow" class="entropy-arrow"></div>
+      </div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="control-group">
+      <label for="adaptiveTrainingSwitch">Entrenamiento Adaptativo Orientado por Incertidumbre:</label>
+      <input type="checkbox" id="adaptiveTrainingSwitch">
+    </div>
+    <div class="control-group">
+      <label for="modelSelect">Modelo:</label>
+      <select id="modelSelect">
+        <option value="CapibaraGPT">CapibaraGPT</option>
+        <option value="Gerenuc-v1">Gerenuc-v1</option>
+        <option value="CapibaraMultimodal-v1">CapibaraMultimodal-v1</option>
+      </select>
+    </div>
+  </div>
+  <div id="chatMessages" class="chat-messages"></div>
+  <div class="input-area">
+    <textarea id="userInput" placeholder="Type your message and press Enter to send..."></textarea>
+  </div>
+</div>
+
+<style>
+  .chat-interface {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding: 1rem;
+    box-sizing: border-box;
+  }
+
+  .metrics {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+
+  .metric-group {
+    flex-basis: 48%;
+  }
+
+  .metric {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+  }
+
+  .parameters-chart {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: conic-gradient(var(--primary) 0%, var(--accent) 0%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .parameters-chart::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: radial-gradient(circle, transparent 50%, rgba(255,0,0,0.5) 100%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .memory-bar {
+    width: 100%;
+    height: 20px;
+    background-color: var(--accent);
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .memory-progress {
+    height: 100%;
+    background-color: var(--primary);
+    width: 0%;
+    transition: width 0.3s ease, background-color 0.3s ease;
+  }
+
+  .memory-bar span {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .entropy-arrow {
+    width: 0;
+    height: 0;
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+  }
+
+  .controls {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+
+  .control-group {
+    display: flex;
+    align-items: center;
+  }
+
+  .control-group label {
+    margin-right: 0.5rem;
+  }
+
+  .chat-messages {
+    flex-grow: 1;
+    overflow-y: auto;
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background-color: var(--secondary);
+    border-radius: 8px;
+  }
+
+  .input-area {
+    display: flex;
+    margin-bottom: 1rem;
+  }
+
+  textarea {
+    width: 100%;
+    padding: 0.5rem;
+    border: none;
+    border-radius: 4px;
+    background-color: var(--secondary);
+    color: var(--text);
+    resize: vertical;
+  }
+</style>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const chatMessages = document.getElementById('chatMessages');
+    const userInput = document.getElementById('userInput');
+    const processingCost = document.getElementById('processingCost');
+    const activeParameters = document.getElementById('activeParameters');
+    const parametersChart = document.getElementById('parametersChart');
+    const memoryUsage = document.getElementById('memoryUsage');
+    const memoryBar = document.getElementById('memoryBar');
+    const modelEntropyValue = document.getElementById('modelEntropyValue');
+    const responseEntropyValue = document.getElementById('responseEntropyValue');
+    const entropyDifference = document.getElementById('entropyDifference');
+    const entropyArrow = document.getElementById('entropyArrow');
+    const modelSelect = document.getElementById('modelSelect');
+    const adaptiveTrainingSwitch = document.getElementById('adaptiveTrainingSwitch');
+
+    let animationInterval;
+
+    function handleSendMessage() {
+      const message = userInput.value.trim();
+      if (message) {
+        addMessage('user', message);
+        userInput.value = '';
+        userInput.disabled = true;
+        startMetricsAnimation();
+        simulateResponse();
+      }
+    }
+
+    function addMessage(sender, text) {
+      const messageElement = document.createElement('div');
+      messageElement.classList.add('message', sender);
+      messageElement.textContent = text;
+      chatMessages.appendChild(messageElement);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function startMetricsAnimation() {
+      let progress = 0;
+      animationInterval = setInterval(() => {
+        progress += 0.05;
+        if (progress >= 1) {
+          clearInterval(animationInterval);
+          progress = 1;
+        }
+        updateMetrics(progress);
+      }, 50);
+    }
+
+    function stopMetricsAnimation() {
+      clearInterval(animationInterval);
+      updateMetrics(1);
+    }
+
+    function simulateResponse() {
+      setTimeout(() => {
+        stopMetricsAnimation();
+        const responses = [
+          "Interesante pregunta. Basándome en los datos procesados, puedo decir que...",
+          "Después de analizar la información disponible, mi conclusión es que...",
+          "Considerando todos los factores relevantes, mi respuesta sería que...",
+          "Tras evaluar múltiples variables, puedo afirmar que...",
+        ];
+        const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+        addMessage('assistant', randomResponse);
+        userInput.disabled = false;
+      }, 3000);
+    }
+
+    function updateMetrics(progress = 1) {
+      const selectedModel = modelSelect.value;
+      const isAdaptiveTraining = adaptiveTrainingSwitch.checked;
+
+      let flopsMultiplier = 1;
+      let paramsMultiplier = 1;
+      let memoryMultiplier = 1;
+
+      switch (selectedModel) {
+        case 'Gerenuc-v1':
+          flopsMultiplier = 1.2;
+          paramsMultiplier = 1.1;
+          memoryMultiplier = 1.3;
+          break;
+        case 'CapibaraMultimodal-v1':
+          flopsMultiplier = 1.5;
+          paramsMultiplier = 1.4;
+          memoryMultiplier = 1.6;
+          break;
+      }
+
+      if (isAdaptiveTraining) {
+        flopsMultiplier *= 1.2;
+        paramsMultiplier *= 1.1;
+        memoryMultiplier *= 1.1;
+      }
+
+      const maxFlops = 1000000 * flopsMultiplier;
+      const maxParams = 100 * paramsMultiplier;
+      const maxMemory = 512 * memoryMultiplier;
+
+      const randomFactor = Math.random() * 0.3 + 0.7; // Random factor between 0.7 and 1.0
+      const flops = Math.floor(maxFlops * progress * randomFactor);
+      const params = Math.floor(maxParams * progress * randomFactor);
+      const memory = Math.floor(64 + (maxMemory - 64) * progress * randomFactor);
+      const modelEntropyVal = Math.random() * progress;
+      const responseEntropyVal = Math.random() * progress;
+
+      processingCost.textContent = flops.toLocaleString();
+      activeParameters.textContent = `${Math.min(params, 100)}%`;
+      
+      // Update parameters chart color
+      const paramsPercentage = Math.min(params, 100);
+      parametersChart.style.background = `conic-gradient(var(--primary) ${paramsPercentage}%, var(--accent) 0%)`;
+      parametersChart.style.setProperty('--chart-opacity', paramsPercentage / 100);
+      
+      memoryUsage.textContent = `${Math.min(memory, 512)} MB`;
+      
+      // Update memory bar color
+      const memoryPercentage = Math.min((memory - 64) / (512 - 64) * 100, 100);
+      memoryBar.style.width = `${memoryPercentage}%`;
+      const memoryColor = `rgb(${Math.floor(255 * memoryPercentage / 100)}, ${Math.floor(255 * (1 - memoryPercentage / 100))}, 0)`;
+      memoryBar.style.backgroundColor = memoryColor;
+      
+      modelEntropyValue.textContent = modelEntropyVal.toFixed(3);
+      responseEntropyValue.textContent = responseEntropyVal.toFixed(3);
+      
+      const diff = Math.abs(modelEntropyVal - responseEntropyVal);
+      entropyDifference.textContent = diff.toFixed(3);
+      
+      if (diff > 0.1) {
+        entropyArrow.style.borderBottom = '20px solid red';
+        entropyArrow.style.borderTop = 'none';
+      } else {
+        entropyArrow.style.borderTop = '20px solid green';
+        entropyArrow.style.borderBottom = 'none';
+      }
+    }
+
+    // Event listeners
+    userInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleSendMessage();
+      }
+    });
+
+    modelSelect.addEventListener('change', () => updateMetrics());
+    adaptiveTrainingSwitch.addEventListener('change', () => updateMetrics());
+
+    // Initialize metrics
+    updateMetrics();
+  });
+</script>
